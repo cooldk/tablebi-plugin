@@ -1,6 +1,6 @@
 ---
 name: tablebi
-min_cli: 0.4.0
+min_cli: 0.4.1
 description: >-
   The data backend for your Claude Code. PIPE marketing sources in (Google Search Console,
   GA4, Google Ads, Meta Ads, CSV), ASK in two altitudes — unified cross-channel metrics
@@ -162,6 +162,15 @@ tablebi dashboard publish --file /tmp/board.json            # 建板并发布;�
 
 > 备注:这条是**用户自己 agent 层**的召回(BYO,零后端);产品侧另有常开后端 digest 邮件兜底,默认关、需另配,不在本 skill 职责内。
 
+## 断开数据源 / 删除工作区(不可撤销)
+
+用户说「断开 / 移除这个站 / 这个账户」「删掉我的数据」「删掉这个工作区」时:
+
+1. 先不带 `--yes` 跑 `tablebi disconnect <provider> --site|--account|--platform <目标> --json`:它**什么都不删**,只回 `{status:"confirm_required", effect, next}`(退出码 2)。把 `effect` 原样讲给用户,**得到明确同意**再跑 `next` 里那条(带 `--yes`)。
+2. 断开 = 停止同步 + 删掉这个源已同步的全部数据;它是该类型最后一个源时授权也一并删(平台那边的授权撤销,把返回的 `note` 告诉用户)。CSV 用导入时的 `--platform` 标签。
+3. 删整个工作区:`tablebi workspace delete <名> --confirm <名>`——数据、看板(公开链接随之失效)、授权全部删除。只在用户**亲口**说要删整个工作区时用,别拿它当「清理一下」。
+4. 两条命令默认等数据删完(`status:"done"`);超时回 `queued/running` + `jobId` 不是失败,`tablebi context` 的 `pending` 会显示「正在删除」。
+
 ## 命令清单
 
 下面这段由 CLI 的命令注册表生成(`tablebi skill --print`),与 `--help` 的命令集合一致(CI 断言)。
@@ -179,6 +188,8 @@ tablebi query [widget] [--kind <k>] [--view <v>] [--metrics <list>] [--by <dim>]
 tablebi define [key] [value...] [--unset <key>]       # 工作区定义:品牌词 / 站点组 / 排除的站 / 属性显示名 / 阈值
 tablebi connect <provider> [--site <url>] [--account <id>] [--days <n>] [--no-wait] [--file <path>] [--platform <p>]  # 连数据源:gsc|ga4|meta_ads|google_ads
 tablebi sync <provider> [--site <url>] [--account <id>] [--days <n>] [--slices <list>] [--no-wait]  # 拉取一个已连源到 facts
+tablebi disconnect <provider> [--site <url>] [--account <id>] [--platform <label>] [--yes] [--no-wait]  # 断开一个数据源并删除它的数据
+tablebi workspace <delete>                            # 工作区管理
 tablebi pin [--file <path>] [--title <t>] [--widget <w>]  # Pin:一步固化活看板
 tablebi dashboard <list|show|create|spec|set-spec|publish|template|unpublish|annotate>  # 看板
 tablebi install [--codex] [--dry-run] [--mcp]         # 把 SKILL 铺进 Claude Code / Codex
@@ -206,4 +217,5 @@ tablebi whoami | workspaces | status | schema | sources | sample | values | metr
 - **平台是权威标签**:`connect csv --platform` 决定来源,不从列里猜。**已在实时同步的平台别拿它的标签导 CSV**(`meta_ads` / `google_ads` / `ga4` / `search_console`):重叠的日子会和实时数据相加、重复计数,所以服务端直接拒收,报错里给出该换的标签(如 `meta_ads_csv`)。换了标签只是能按 `platform` 分开看——不按 `platform` 过滤的合计仍会把同一账户同一天的两份都算进去,合计时二选一。
 - **CSV 的花费按表头币种原值入库**(如「Amount spent (EUR)」),不换算:导入结果的 `currency` 就是它,`notes` 里的提醒照读给用户;和别的币种的平台一起合计前先讲清币种。
 - 数据旧了先 `connect`/`sync` 再分析(看 `context` 的新鲜度与 `coverageThrough`)。
+- **删除类命令(`disconnect` / `workspace delete`)永远先问人**:不带 `--yes` 的那次输出就是给人看的确认单;别自己加 `--yes`,也别为了「重来一遍」去删源再重连(重连会从头拉历史)。
 - **用户面不出实现词**:没有 pod / warming / binding / parquet;渠道名用 `platform_label()` 或人话。
