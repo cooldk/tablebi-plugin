@@ -102,7 +102,7 @@ tablebi query --kind compare --view metrics --metrics cost,roas --by platform --
 - 站点组 `tablebi define site_group core "a.com, b.com"` → filter `site_group=core`;总览别算的站 `exclude_sites "old.com"`;
 - GA4 属性显示名 `property_alias "543715615 = tabledi.com"`(两个编号同名 = 合并成一行);站 ↔ 属性 `site_property tabledi.com "543715615"`(每站看板归属错了时);
 - 阈值 `striking_distance "4-15, 5"`(机会词)、`movers "min_clicks=5"`(涨跌榜);转化口径 `ga4_conversion_events "purchase, sign_up"` / `meta_conversion_actions "purchase, lead"`(下次同步起生效)。
-- 看板页面语言 `language en`:用户用英文跟你说话、或看板要发给英文读者(客户、老板)时就定上 —— 公开看板的标题、表头、角标、页脚全出英文;`query` 的输出与快照里的列名不变(照旧中文,给你读)。`dashboard template` 出的模板也随之带 `defaults.lang: en`。
+- 看板页面语言 `language`:**新空间默认 `en`**(公开看板的标题、表头、角标、页脚出英文);用户用中文跟你说话、看板给中文读者看时 `tablebi define language zh`。`query` 的输出与快照里的列名不随它变(照旧中文,给你读);`dashboard template` 出的模板跟着它带 `defaults.lang`。
 
 系统默认看板(工作区总览 + 每站)按这些定义出段;改了会在后台重建。删一个用 `--unset <键>`。
 
