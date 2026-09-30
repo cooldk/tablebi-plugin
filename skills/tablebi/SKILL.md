@@ -1,6 +1,6 @@
 ---
 name: tablebi
-min_cli: 0.3.0
+min_cli: 0.4.0
 description: >-
   The data backend for your Claude Code. PIPE marketing sources in (Google Search Console,
   GA4, Google Ads, Meta Ads, CSV), ASK in two altitudes — unified cross-channel metrics
@@ -21,7 +21,7 @@ tablebi 是名词(数据和看板的家),你是动词(驱动它的手)。脑永�
 
 ## 开场先 rehydrate
 
-每个会话先跑一次 `tablebi context --json`(口径 + 已连源 + 新鲜度 + 数据概览 + 命令签名)。数据为空就先 `tablebi connect …`。
+每个会话先跑一次 `tablebi context --json`(口径包 `grammar.packs` + 已连源 + 新鲜度 + 工作区定义 `definitions` + 看板 + 账号 + 命令签名)。数据为空就先 `tablebi connect …`。
 
 命令若在 stderr 打印「正在准备你的数据环境…」是**正常等待**,CLI 会自己重试;只有最终返回 `status:"unavailable"`(退出码 3)才是真没好,照它的 `remediation` 稍后重跑同一条命令。
 
@@ -39,14 +39,13 @@ tablebi 是名词(数据和看板的家),你是动词(驱动它的手)。脑永�
 
 ## 刚连完 / 同步完:就着真数据给钩子(激活的关键一跳)
 
-**别甩"你可以问 ROAS / 看趋势"这种泛泛能力清单**——那是最弱的教育。先用一两个 `ask` 探一眼真实数字,再给 **2–3 个就着具体数、带钩子的下一步**。这一步直接决定新用户会不会走下去。
+**别甩"你可以问 ROAS / 看趋势"这种泛泛能力清单**——那是最弱的教育。先用一两个 `query` 探一眼真实数字,再给 **2–3 个就着具体数、带钩子的下一步**。这一步直接决定新用户会不会走下去。
 
 **先探一眼——按已连的源选探法,别一律打 ROAS**(ROAS/CPA 是**投放口径**,只对连了 Google Ads / Meta 的用户有意义):
 
-- 有投放源 → 各渠道 ROAS 排序、异常花费:
-  `tablebi ask --json "SELECT platform_label(platform) AS 渠道, round(roas(SUM(revenue),SUM(cost)),2) roas, round(SUM(cost)) cost FROM metrics GROUP BY 1 ORDER BY roas"`
-- 只有 GSC(没投放)→ **别提 ROAS/花费**,看近 7 天 vs 前 7 天的页面/词涨跌(页面下钻 `search_console_pages_raw`、词下钻 `search_console_raw`,用 `FILTER (WHERE date > (SELECT max(date) FROM search_console_totals_raw) - INTERVAL 7 DAY)` 分两期)。
-- 只有 GA4 → 渠道/来源流量的周环比大变动(`ga4_raw` 的 `sessions`/`conversions`)。
+- 有投放源 → `tablebi query --kind table --view metrics --metrics cost,roas,conversions --by platform --json`(再按 campaign 看异常花费)。
+- 只有 GSC → **别提 ROAS/花费**:`tablebi query --kind compare --view search_console --metrics clicks,impressions --by page --window last-7d --json`(页面涨跌;`--by query` 看词)。
+- 只有 GA4 → `tablebi query --kind compare --view ga4 --metrics sessions,conversions --by channel --window last-7d --json`。
 
 **再给钩子**(具体带数 > 泛泛能力):
 
@@ -68,28 +67,43 @@ tablebi 是名词(数据和看板的家),你是动词(驱动它的手)。脑永�
 
 数据长起来(有投放、或 GSC 月点击上千)就自然切回钩子模式。
 
-## Ask:两个高度
+## Ask:先 `query`(语法),答不了再 `ask`(SQL)
 
-口径在 DuckDB 里焊成视图 + 宏,两边都查(`tablebi schema` 看维度/度量/宏,`tablebi sample` 看各表真实列名):
+`tablebi query` 只说**要什么**(kind · view · metrics · by · window · compare · filter),编译器负责挑表、锚日期、在同一聚合层上算比值、排除品牌词。返回行 + **生成的 SQL** + 时间窗 + trust —— 问的数和钉进看板的是同一个编译器算的。
 
-- **口径(统一可信)**:视图 `metrics`(友好列名,`conversion_value`→`revenue`)+ 宏 `roas` / `ctr` / `cpc` / `cpm` / `cpa` / `cvr` / `aov` / `avg_position` / `platform_label` / `ai_assistant`。派生比值是**聚合后**算,别手搓——用宏。
-- **原生**:`<platform>_raw` 视图(`ga4_raw` / `meta_ads_raw` / GSC 的四张 …)——connect 时落的原生层,单平台字段(Meta 的 reach/frequency/cpm、Google Ads 带小数的 conversions 与 `cost_micros`、GSC 的 position…在这;广告两家的原生表也只到 campaign 级)。统一层只是可信的共同子集,要更细就下钻原生。统一裸表 `facts` 也在,用于跨渠道。`context` 的 `sql.views` 列出当前可查的视图。
-- **GSC 四张原生表各管一类数,问什么查哪张**(别拿明细加总当总数):
-  - 点击 / 曝光 / CTR / 平均排名、趋势、环比 → `metrics`(platform='search_console')或 `search_console_totals_raw`(**加 `search_type = 'web'`**;它还有 image / video / news / discover / googleNews 的行)。站点级,含匿名查询,= Search Console 后台总览。
-  - 页面 → `search_console_pages_raw`(含匿名查询带来的点击;曝光与排名按页面计)。
-  - 国家 / 设备 → `search_console_geo_raw`(`country` 是 ISO-3 小写如 `usa`,`device` 是 `DESKTOP` / `MOBILE` / `TABLET`)。
-  - 搜索词、词×页、排名分布、机会词 → `search_console_raw`(明细,**不含匿名查询**:合计会小于总数,各站差多少看 `data.sites[].anonPct28d`)。
-  - 平均排名一律 `avg_position(SUM(position*impressions), SUM(impressions))`,别用 plain avg。
-  - 这四张表答不了的(词×国家/设备、图片或 Discover 明细、搜索外观、小时级、同步窗口之外的明细、收录、sitemap)→ 见下面「GSC 直连」。
-- **GA4 三张原生表**:渠道 / 国家 → `ga4_raw`;具体来源 × 媒介(`google / organic`、`chatgpt.com / referral` …)→ `ga4_sources_raw`;AI 助手带来的访问 → `ga4_sources_raw` 加 `WHERE ai_assistant(source) IS NOT NULL`(宏按名单认 ChatGPT / Perplexity / Claude / Gemini / Copilot …),落到了哪些页 → `ga4_ai_landing_raw`(只含 AI 来源)。三张表的 `conversions` 都是 GA4 的 key events。
+```bash
+tablebi query --kind kpi --view search_console --metrics clicks,impressions,ctr,avg_position --compare previous_period --json
+tablebi query --kind breakdown --view search_console --metrics clicks,ctr --by query --filter non_brand --limit 20 --json
+tablebi query --kind trend --view ga4 --metrics sessions --split-by ai_assistant --filter ai_only --window last-90d --grain week --json
+tablebi query --kind compare --view metrics --metrics cost,roas --by platform --json
+```
 
-`--json` 给你解析,默认 CSV 给人看。**只读**:引擎已锁死(只能查这份数据,读不了别的文件/网络;超内存落盘、超时被杀)。一条 SELECT/WITH。
+- kind:`kpi` 一行总数(≤ 4 个指标,加 compare 出环比)· `trend` 随时间 · `breakdown` 哪些最大 · `table` 明细 · `compare` 本期 vs 上期。
+- 每个包有哪些维度 / 指标、这个工作区实际有哪些表:`context` 的 `grammar.packs`(只列已连的)。GSC 的表路由编译器做:总数走站点总数表、按词走明细 —— 返回的 `caveats`(如「明细不含匿名查询」)转述时带上。
+- window 默认 `last-28d`,**锚在数据覆盖到的那天**(不是今天);按周 / 按月的趋势只画完整的桶。filter:`维度=值`(`*` 通配、逗号 = 或)、`<维度>_not=` 排除、`site_group=` / `exclude_sites` / `non_brand` / `brand`(GSC)、`organic` / `ai_only`(GA4)。
+- 报错会列出可用的值,照改即可。语法表达不了的(自定义算法、跨表 JOIN)再用 `ask` 写 SQL。
 
-**追问顺序:按 `context` 的 `drill.next` 走。** 筛定一个维度之后,接下来还有信息量的维度是固定的
-(定了站 → 问它靠哪些词 / 哪些页;定了词 → 问它落在哪个页;定了页 → 问它靠哪些词进来)。
-**看板上的「点即筛」读的是同一张表** —— 用户点一行,那一维就被筛定、对应的榜单自动收起,
-剩下的正是 `drill.next` 里那几个。按它追问,你给出的路径和用户自己点出来的是同一条;
-自己另编一套,两边就会分叉。
+### SQL(`ask`)的两个高度
+
+- **口径**:视图 `metrics`(跨渠道统一,营收列名 `revenue`)+ 宏 `roas` / `ctr` / `cpc` / `cpm` / `cpa` / `cvr` / `aov` / `avg_position` / `platform_label` / `ai_assistant`。比值是**聚合后**算的,用宏,别手搓。
+- **原生**:`<platform>_raw`(单平台全字段;广告两家的原生表只到 campaign 级,Google Ads 花费是 `cost_micros`)、统一裸表 `facts`(营收列名 `conversion_value`)。`context` 的 `sql.views` 是当前可查的视图,`tablebi context --sample` 看真实列名。
+- **GSC 四张表各管一类数**(别拿明细加总当总数):总数 / 趋势 → `search_console_totals_raw`(**加 `search_type = 'web'`**,含匿名查询 = 后台总览);页面 → `search_console_pages_raw`;国家 / 设备 → `search_console_geo_raw`(`country` 是 ISO-3 小写如 `usa`);搜索词 → `search_console_raw`(**不含匿名查询**,各站差多少看 `data.sites[].anonPct28d`)。平均排名一律 `avg_position(SUM(position*impressions), SUM(impressions))`。
+- **GA4**:渠道 / 国家 → `ga4_raw`;来源 × 媒介 → `ga4_sources_raw`(AI 助手引荐加 `WHERE ai_assistant(source) IS NOT NULL`);AI 引来的落地页 → `ga4_ai_landing_raw`。`conversions` 都是 GA4 的 key events。
+
+`--json` 给你解析。**只读**:一条 SELECT / WITH,引擎锁死(读不了别的文件 / 网络,超时被杀)。
+
+**追问顺序按 `context` 的 `drill.next` 走**(定了站 → 问词 / 页;定了词 → 问页;定了页 → 问词)。看板上的「点即筛」读的是同一张表:用户点一行、那一维被筛定,剩下的正是 `drill.next` 里那几个 —— 按它追问,你和用户点出来的是同一条路。
+
+## 定义:把每次都要重说的常识沉淀下来
+
+`tablebi define` 无参数 = 列出生效值(`defaulted` = 还在用默认值的键)。用户说出这类常识(「tabl 开头的都是品牌词」「这两个属性是同一个站」「lokuma 那个站别算」)就**当场 define**,别在每条 SQL 里手写 `NOT IN` / `VALUES` 映射 —— 发布时 lint 会拦。
+
+- 品牌词 `tablebi define brand_terms "acme*, acme corp"` → filter `non_brand` / `brand` 可用,机会词不再算品牌词;
+- 站点组 `tablebi define site_group core "a.com, b.com"` → filter `site_group=core`;总览别算的站 `exclude_sites "old.com"`;
+- GA4 属性显示名 `property_alias "543715615 = tabledi.com"`(两个编号同名 = 合并成一行);站 ↔ 属性 `site_property tabledi.com "543715615"`(每站看板归属错了时);
+- 阈值 `striking_distance "4-15, 5"`(机会词)、`movers "min_clicks=5"`(涨跌榜);转化口径 `ga4_conversion_events "purchase, sign_up"` / `meta_conversion_actions "purchase, lead"`(下次同步起生效)。
+
+系统默认看板(工作区总览 + 每站)按这些定义出段;改了会在后台重建。删一个用 `--unset <键>`。
 
 ## GSC 直连:同步表答不了的才用
 
@@ -119,26 +133,19 @@ tablebi gsc sitemaps --site chatdiagram.com                                     
 
 把一组查询钉成公开只读 URL(每次打开按**当前数据**重算,不是死截图)。
 
-**主路径:写 spec 文件,别在 shell 参数里转义 SQL。** 中文别名、子查询、`INTERVAL`、`"CTR%"` 在参数里要再转义一层,是最容易出错的地方。
+**主路径:v2 spec 文件 + `dashboard publish --file`。** widget 用和 `query` 同一套语法;图型由 kind 定(kpi → 记分卡、trend → 折线、breakdown → 横条,可用 `"chart": "bar" | "pie"` 改),时间窗进每格的角标,标题可省(由语法生成,≤ 40 字)。
 
 ```bash
-cat > /tmp/spec.json <<'JSON'
-{ "title": "搜索流量",
-  "widgets": [
-    { "title": "近 30 天概览", "chart": "scorecard",
-      "sql": "SELECT SUM(impressions) AS 曝光, SUM(clicks) AS 点击, round(ctr(SUM(clicks),SUM(impressions))*100,2) AS \"CTR%\" FROM search_console_totals_raw WHERE search_type = 'web' AND date > (SELECT max(date) FROM search_console_totals_raw) - INTERVAL 30 DAY" },
-    { "title": "每日趋势", "chart": "line",
-      "sql": "SELECT date AS 日期, SUM(impressions) AS 曝光, SUM(clicks) AS 点击 FROM search_console_totals_raw WHERE search_type = 'web' GROUP BY date ORDER BY date" }
-  ] }
-JSON
-tablebi pin --file /tmp/spec.json
+tablebi dashboard template seo-overview > /tmp/board.json   # 按已连的源出模板;无参数列出全部
+# 改 /tmp/board.json:删段、加段、改 window / filter / limit
+tablebi dashboard publish --file /tmp/board.json --dry-run  # 每个 widget 编译 + 真跑 + lint
+tablebi dashboard publish --file /tmp/board.json            # 建板并发布;改已有的:dashboard publish <token> --file …
 ```
 
-单个 widget 的快捷方式:`tablebi pin --title "营销周报" --widget "每日趋势::line=SELECT date AS 日期, SUM(clicks) AS 点击 FROM metrics GROUP BY date ORDER BY date"`。
+形状:`{ "version": 2, "title": "…", "defaults": { "view": "search_console", "window": "last-28d" }, "widgets": [ { "kind": "kpi", "metrics": ["clicks", "ctr"], "compare": "previous_period" }, { "kind": "breakdown", "metrics": ["clicks"], "by": "page", "limit": 15 } ] }`。
+每板 ≤ 12 个 widget(硬上限 16);同构的多张(每个站 / 属性一张)用 `split_by` 合成一张。建看板默认**先来一排 kpi + 一两张趋势**,别交一堆纯表格。
 
-**看板是交互式 BI(ECharts),不只是表格。** 品牌深色主题 + 可交互图(hover 看精确值、拖滑块缩放、点图例开关线)。widget 加 `"chart"` 字段(或标题 `::<类型>` 后缀)选形态,缺省 = 表格。**支持的类型权威在 `context` 的 `chartKinds` 字段**(加了新类型自动出现在那),每种适合什么那里也写了。经验法则:
-
-**概览数字 → `scorecard` 顶一排;趋势/逐日 → `line`;占比/份额 → `pie`;长名排行 → `hbar`,短名少类别 → `bar`;多指标明细留表格。** 建看板默认**先来一排 scorecard + 一两张趋势图**,别交一堆纯表格。渲染失败/数据不成图**自动回退表格,绝不空白**。
+**SQL 是逃生舱**:`{ "kind": "sql", "sql": "…", "title": "…", "chart": "line" }`,页面标「自定义查询」,v2 看板里要过 lint(不许内嵌 VALUES 映射表、`NOT IN` 超过 3 项、`current_date` / `now()`、没有 LIMIT 的 GROUP BY)。旧格式 `{ title, widgets: [{ title, sql, chart }] }` 与 `tablebi pin --file` 照常可用(v1 永远照读,lint 只警告);图型权威在 `context` 的 `chartKinds`。
 
 **Pin/publish 完不要只甩 token —— 把人引回 console。** 主动告诉用户:看板是**活的**(自刷新),公开只读链接可直接发给合伙人/客户;它也已**陈列在 console.tablebi.com → 看板**里,去那看全貌、管理、分享。对话负责创作,console 负责陈列与分享,做完就把人送回载体。
 
@@ -157,32 +164,44 @@ tablebi pin --file /tmp/spec.json
 
 ## 命令清单
 
-**参数以 `tablebi context` 返回的 `cli.commands` 为准**(CLI 自报的签名,不会和 `--help` 漂移);下面只是常用面。
+下面这段由 CLI 的命令注册表生成(`tablebi skill --print`),与 `--help` 的命令集合一致(CI 断言)。
+`connect csv --platform <p>` 别和已实时同步的平台同名(会被拒收),用 `meta_ads_csv` 这类;`sync --slices geo,pages --days 180` 只补 GSC 页面 / 国家表的历史,不重拉明细。宿主更愿意走 MCP 时:`tablebi install --mcp` 注册内置的 `tablebi mcp`。
 
+<!-- tablebi:commands:begin(`tablebi skill --print` 生成,别手改)-->
 ```
-tablebi install / login / update       # 铺 skill / 浏览器授权登录 / 升级 CLI
-tablebi context [--json] [--full]      # 开场 rehydrate(--full = 不截断站点列表)
-tablebi schema | sources | pending | sample   # 自省:口径 / 已连源 / 待处理 / 样本行
-tablebi connect <gsc|ga4|google_ads|meta_ads> [--site <url>|--account <id>]
-tablebi connect csv --file <f> --platform <p>   # <p> 别和已实时同步的平台同名(会被拒收),用 meta_ads_csv 这类
-tablebi sync <provider> --site <url>|--account <id> [--days <n>] [--slices <list>]   # GSC 可 --slices geo,pages --days 180 只补页面 / 国家表的历史,不重拉明细
-tablebi ask "<SQL>" [--json]           # Ask(`sql` 是同义名)
-tablebi pin --file <spec.json>         # Pin(主路径);或 --title + --widget "标题=SQL"
-tablebi dashboard <list|show|spec|set-spec|publish|unpublish|annotate> <token>
-tablebi scoreboard [--window <days>]   # 多站增长记分牌:谁在涨 / 谁在跌(GSC)
-tablebi gsc query|inspect|sitemaps --site <站> …   # GSC 直连 Google(同步表答不了的才用,见上)
+tablebi login [--api <url>]                           # 浏览器登录
+tablebi logout                                        # 注销
+tablebi context [--full] [--sample]                   # 开场 rehydrate:口径包 + 源 + 新鲜度 + 定义 + 看板 + 账号 + 命令签名
+tablebi scoreboard [--window <days>]                  # 多产品增长记分牌:谁在涨 / 谁在跌
+tablebi gsc <query|inspect|sitemaps>                  # GSC 直连 Google
+tablebi ask <query>                                   # Ask:全功能只读 SQL
+tablebi query [widget] [--kind <k>] [--view <v>] [--metrics <list>] [--by <dim>] [--window <w>] […]  # 问一个语法 widget
+tablebi define [key] [value...] [--unset <key>]       # 工作区定义:品牌词 / 站点组 / 排除的站 / 属性显示名 / 阈值
+tablebi connect <provider> [--site <url>] [--account <id>] [--days <n>] [--no-wait] [--file <path>] [--platform <p>]  # 连数据源:gsc|ga4|meta_ads|google_ads
+tablebi sync <provider> [--site <url>] [--account <id>] [--days <n>] [--slices <list>] [--no-wait]  # 拉取一个已连源到 facts
+tablebi pin [--file <path>] [--title <t>] [--widget <w>]  # Pin:一步固化活看板
+tablebi dashboard <list|show|create|spec|set-spec|publish|template|unpublish|annotate>  # 看板
+tablebi install [--codex] [--dry-run] [--mcp]         # 把 SKILL 铺进 Claude Code / Codex
+tablebi mcp                                           # 以 stdio MCP 服务器运行
+tablebi skill [--print] [--check]                     # SKILL 的命令清单
+tablebi update                                        # 升级 CLI 到最新版
+tablebi pending                                       # 待处理:stale / 未连源
+tablebi whoami | workspaces | status | schema | sources | sample | values | metrics  # 老命令,照常可用;将并入 context / query
 ```
+所有命令都认 `-w, --workspace <ws>` 与 `--json`;子命令与完整参数以 `tablebi context` 返回的 `cli.commands` 为准。
+<!-- tablebi:commands:end -->
 
 `connect` 一条龙:弹浏览器授权(凭证加密存服务端,你碰不到密钥)→ 列目标(多个则输出 `{status:"choose_target",targets:[…]}`,带 `--site/--account` 再来)→ 同步 + 出看板。默认**等待完成**;超时输出 `{status:"in_progress"}`(≠失败)。
 
 ## 规则
 
-- **数从引擎来,别编**:用 `ask`/`context` 的输出,不要自己猜数字。
-- **派生指标用宏**(roas/ctr/cpa…),别手搓比值——口径只在一处定义。
+- **数从引擎来,别编**:用 `query` / `ask` / `context` 的输出,不要自己猜数字。
+- **能用 `query` 的别写 SQL**;写 SQL 时派生指标用宏(roas/ctr/cpa…),别手搓比值——口径只在一处定义。
+- **常识用 `define` 沉淀**(品牌词、站点组、属性名、排除的站),别在每条 SQL 里硬编码。
 - **按已连源选高度**:ROAS/CPA/花费类口径只对连了投放源的用户谈;GSC-only 用 raw 看涨跌,连提都别提 ROAS。
 - **数据薄别硬找问题**:走冷启动陪跑,硬挤的"发现"毁信任。
 - **被问"为什么和平台后台对不上"**:答案**引 `context` 的 `trust.caveats`**(按你连的平台组合自动列出的口径差异:归因窗口/源字段/去重差异),照它讲、别现编——如 Meta 转化=平台归因、GA4=last-click,天然不等;广告 revenue=平台归因价值非对账收入;GSC 点击≠GA4 会话。承认不可比处,别硬拗一致。caveats 没列到的才靠常识补,并说明是推断。
-- **探索给 SQL,发布留 spec**:Ask 用裸 SQL;Pin 钉的是 widget 定义。
+- **探索用 `query`,发布钉 v2 spec**:两边同一个编译器;`query` 返回的 `sql` 字段就是看板会跑的那条。
 - **做完提示回 console**;**pin 完提议定时盯盘**(有异动才开口,别骚扰)。
 - **平台是权威标签**:`connect csv --platform` 决定来源,不从列里猜。**已在实时同步的平台别拿它的标签导 CSV**(`meta_ads` / `google_ads` / `ga4` / `search_console`):重叠的日子会和实时数据相加、重复计数,所以服务端直接拒收,报错里给出该换的标签(如 `meta_ads_csv`)。换了标签只是能按 `platform` 分开看——不按 `platform` 过滤的合计仍会把同一账户同一天的两份都算进去,合计时二选一。
 - **CSV 的花费按表头币种原值入库**(如「Amount spent (EUR)」),不换算:导入结果的 `currency` 就是它,`notes` 里的提醒照读给用户;和别的币种的平台一起合计前先讲清币种。

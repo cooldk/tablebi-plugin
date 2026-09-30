@@ -54,7 +54,8 @@ Ask your agent, in your own words:
 | CSV | Live — upload any export with `tablebi connect csv --file <f> --platform <label>` |
 
 Not included: white-label reports, scheduled PDF or email reports, alerting, rank tracking. TableBI
-is a CLI, not an MCP server. The free tier covers one source and one live dashboard; see
+is a CLI first; since 0.4.0 it also carries a local MCP server (`tablebi install --mcp` registers
+`tablebi mcp`), and there is no hosted MCP endpoint. The free tier covers one source and one live dashboard; see
 [pricing](https://tablebi.com/pricing.html).
 
 ## Data and privacy
