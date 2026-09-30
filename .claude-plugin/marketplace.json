@@ -1,0 +1,20 @@
+{
+  "name": "tablebi",
+  "owner": {
+    "name": "TableBI",
+    "email": "support@tablebi.com"
+  },
+  "metadata": {
+    "description": "TableBI for Claude Code — marketing data from Search Console, GA4, Google Ads and Meta Ads, queried in SQL and pinned as live dashboards.",
+    "version": "0.3.0"
+  },
+  "plugins": [
+    {
+      "name": "tablebi",
+      "description": "Connect Search Console, GA4, Google Ads, Meta Ads (beta) or a CSV; ask across channels in SQL; pin a live dashboard URL.",
+      "source": "./",
+      "category": "productivity",
+      "homepage": "https://tablebi.com"
+    }
+  ]
+}
