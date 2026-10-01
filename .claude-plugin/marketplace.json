@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "TableBI for Claude Code — marketing data from Search Console, GA4, Google Ads and Meta Ads, queried in SQL and pinned as live dashboards.",
-    "version": "0.4.2"
+    "version": "0.4.3"
   },
   "plugins": [
     {

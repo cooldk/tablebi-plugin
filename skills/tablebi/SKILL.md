@@ -1,6 +1,6 @@
 ---
 name: tablebi
-min_cli: 0.4.1
+min_cli: 0.4.2
 description: >-
   The data backend for your Claude Code. PIPE marketing sources in (Google Search Console,
   GA4, Google Ads, Meta Ads, CSV), ASK in two altitudes — unified cross-channel metrics
@@ -21,13 +21,13 @@ tablebi is the noun (the home of the data and the dashboards); you are the verb 
 
 ## Language
 
-Answer in the user's language. This skill is written in English, but many users write in Chinese — reply in whatever language they use. Some output is Chinese regardless (column names from `query` and the system dashboards, some CLI progress and confirmation text, server remediation hints): read it as data, and translate it when you relay it to someone writing in English.
+Answer in the user's language. This skill is written in English, but many users write in Chinese — reply in whatever language they use. The CLI and the server answer in English by default (errors, hints, confirmations, `query` labels); they answer in Chinese when the CLI runs with `TABLEBI_LANG=zh` or a Chinese system locale — set `TABLEBI_LANG=zh` for a user who wants Chinese output. Data stays as it is in either language: dashboard titles people wrote, and the column names of the system dashboards and older CLIs (Chinese) — read it as data and translate it when you relay it.
 
 ## Rehydrate first
 
 Start every session with `tablebi context --json` (metric packs `grammar.packs` + connected sources + freshness + workspace `definitions` + dashboards + account + command signatures). If there's no data yet, `tablebi connect …` first.
 
-If a command prints 「正在准备你的数据环境…」 ("preparing your data environment…") on stderr, that's a **normal wait** — the CLI retries on its own. Only a final `status:"unavailable"` (exit code 3) means it really isn't ready; follow its `remediation` and rerun the same command later.
+If a command prints "Preparing your data environment…" (「正在准备你的数据环境…」 in Chinese) on stderr, that's a **normal wait** — the CLI retries on its own. Only a final `status:"unavailable"` (exit code 3) means it really isn't ready; follow its `remediation` and rerun the same command later.
 
 **Multiple sites / combined readings — don't call N sites one:** a platform often has several sites / accounts connected (N verified domains under one GSC authorization). In `context`, `data.sites` gives `site`/`rows`/`dataThrough`/`ageDays`/`stale` per account; GSC sites also carry `clicks28d` (the site's total clicks over the last 28 days) and `anonPct28d` (the anonymized share in %: the part you can't see once you split by query). GSC sites are ordered by `clicks28d`, the rest by rows, and **only the top 20 are listed**; see them all with `tablebi sources` or `context --full`.
 
@@ -106,7 +106,7 @@ tablebi query --kind compare --view metrics --metrics cost,roas --by platform --
 - Site groups `tablebi define site_group core "a.com, b.com"` → filter `site_group=core`; sites to leave out of the overview: `exclude_sites "old.com"`;
 - GA4 property display names `property_alias "543715615 = tabledi.com"` (two IDs with the same name = merged into one row); site ↔ property `site_property tabledi.com "543715615"` (when a per-site dashboard picked the wrong property);
 - Thresholds `striking_distance "4-15, 5"` (opportunity queries) and `movers "min_clicks=5"` (the movers list); conversion definitions `ga4_conversion_events "purchase, sign_up"` / `meta_conversion_actions "purchase, lead"` (effective from the next sync).
-- Dashboard page language `language`: **new workspaces default to `en`** (public dashboards show titles, headers, badges and footers in English); when the user talks to you in Chinese and the dashboards are for Chinese readers, run `tablebi define language zh`. It doesn't change `query` output or the column names in snapshots (they stay Chinese, for you to read); templates from `dashboard template` carry it as `defaults.lang`.
+- Dashboard page language `language`: **new workspaces default to `en`** (public dashboards show titles, headers, badges and footers in English); when the user talks to you in Chinese and the dashboards are for Chinese readers, run `tablebi define language zh`. It only sets the dashboard pages' language (`query` output follows the CLI's language instead); templates from `dashboard template` carry it as `defaults.lang`.
 
 The system default dashboards (workspace overview + one per site) build their sections from these definitions; changing one rebuilds them in the background. Remove one with `--unset <key>`.
 
